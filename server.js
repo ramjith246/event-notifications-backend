@@ -6,7 +6,7 @@ const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const cron = require("node-cron"); // For scheduling tasks
 const readline = require("readline"); // For reading user input
-const admin = require("firebase-admin");
+
 
 admin.initializeApp({
     credential: admin.credential.cert({
