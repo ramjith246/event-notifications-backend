@@ -4,35 +4,29 @@ const cors = require("cors");
 const webpush = require("web-push");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
-const cron = require("node-cron"); // For scheduling tasks
-const readline = require("readline"); // For reading user input
+const cron = require("node-cron");
+const readline = require("readline");
 
-
+// Initialize Firebase Admin
 admin.initializeApp({
-    credential: admin.credential.cert({
-      type: process.env.FIREBASE_TYPE,
-      project_id: process.env.FIREBASE_PROJECT_ID,
-      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-      client_email: process.env.FIREBASE_CLIENT_EMAIL,
-      client_id: process.env.FIREBASE_CLIENT_ID,
-      auth_uri: process.env.FIREBASE_AUTH_URI,
-      token_uri: process.env.FIREBASE_TOKEN_URI,
-      auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-      client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
-      
-    }),
-  });
+  credential: admin.credential.cert({
+    type: process.env.FIREBASE_TYPE,
+    project_id: process.env.FIREBASE_PROJECT_ID,
+    private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+    private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"), // Replace escaped newlines
+    client_email: process.env.FIREBASE_CLIENT_EMAIL,
+    client_id: process.env.FIREBASE_CLIENT_ID,
+    auth_uri: process.env.FIREBASE_AUTH_URI,
+    token_uri: process.env.FIREBASE_TOKEN_URI,
+    auth_provider_x509_cert_url:process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
+    client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
+    universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
+  }),
+});
 
 const app = express();
 app.use(express.json());
 app.use(cors());
-
-// Initialize Firebase Admin
-const serviceAccount = require(process.env.FIREBASE_CREDENTIALS);
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
 
 const db = getFirestore();
 
@@ -71,9 +65,9 @@ app.post("/subscribe", (req, res) => {
   // Check for duplicates before adding
   if (!isDuplicateSubscription(subscription)) {
     subscribers.push(subscription);
-   // console.log("New subscription added:", subscription.endpoint);
+    console.log("New subscription added:", subscription.endpoint);
   } else {
-    //console.log("Subscription already exists:", subscription.endpoint);
+    console.log("Subscription already exists:", subscription.endpoint);
   }
 
   res.status(201).json({ message: "Subscribed successfully!" });
@@ -196,5 +190,4 @@ const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
-
 
