@@ -18,7 +18,7 @@ admin.initializeApp({
     client_id: process.env.FIREBASE_CLIENT_ID,
     auth_uri: process.env.FIREBASE_AUTH_URI,
     token_uri: process.env.FIREBASE_TOKEN_URI,
-    auth_provider_x509_cert_url:process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
+    auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
     client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
     universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
   }),
@@ -37,19 +37,19 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
-// Store subscribers
+// Store subscribers with their blood group
 let subscribers = [];
 
 // Function to check for duplicate subscriptions
 const isDuplicateSubscription = (subscription) => {
-  return subscribers.some((sub) => sub.endpoint === subscription.endpoint);
+  return subscribers.some((sub) => sub.subscription.endpoint === subscription.endpoint);
 };
 
 // Function to clean up invalid subscriptions
 const cleanupSubscriptions = () => {
   subscribers = subscribers.filter((sub) => {
     try {
-      new URL(sub.endpoint); // Check if the endpoint is a valid URL
+      new URL(sub.subscription.endpoint); // Check if the endpoint is a valid URL
       return true; // Keep valid subscriptions
     } catch (error) {
       return false; // Remove invalid subscriptions
@@ -60,11 +60,11 @@ const cleanupSubscriptions = () => {
 
 // API to store push subscription
 app.post("/subscribe", (req, res) => {
-  const subscription = req.body;
+  const { subscription, bloodGroup } = req.body;
 
   // Check for duplicates before adding
   if (!isDuplicateSubscription(subscription)) {
-    subscribers.push(subscription);
+    subscribers.push({ subscription, bloodGroup });
     console.log("New subscription added:", subscription.endpoint);
   } else {
     console.log("Subscription already exists:", subscription.endpoint);
@@ -73,17 +73,16 @@ app.post("/subscribe", (req, res) => {
   res.status(201).json({ message: "Subscribed successfully!" });
 });
 
-// Function to send a push notification
-const sendPushNotification = async (title, message) => {
+// Function to send a push notification to specific blood group
+const sendPushNotification = async (title, message, bloodGroup) => {
   const payload = JSON.stringify({ title, message });
 
-  console.log("Sending notification to subscribers:", subscribers.length);
+  console.log(`Sending notification to subscribers with blood group: ${bloodGroup}`);
 
-  // Use a Set to track sent notifications
   const sentSubscriptions = new Set();
 
-  subscribers.forEach((subscription) => {
-    if (!sentSubscriptions.has(subscription.endpoint)) {
+  subscribers.forEach(({ subscription, bloodGroup: group }) => {
+    if (group === bloodGroup && !sentSubscriptions.has(subscription.endpoint)) {
       webpush
         .sendNotification(subscription, payload)
         .then(() => {
@@ -93,7 +92,7 @@ const sendPushNotification = async (title, message) => {
         .catch((error) => {
           console.error("Error sending notification:", error);
           // Remove invalid subscriptions
-          subscribers = subscribers.filter((sub) => sub.endpoint !== subscription.endpoint);
+          subscribers = subscribers.filter(sub => sub.subscription.endpoint !== subscription.endpoint);
         });
     }
   });
@@ -148,11 +147,36 @@ const checkAndSendNotifications = async () => {
       console.log(`📢 Sending notification for event: ${event.name}`);
       sendPushNotification(
         "Upcoming Event",
-        `Reminder: ${event.name} is today at ${event.time}!`
+        `Reminder: ${event.name} is today at ${event.time}!`,
+        "*" // Send to all subscribers
       );
     }
   });
 };
+
+// Listen for new donors and send notifications
+const listenForNewDonors = () => {
+  const donorsCollection = db.collection("donors");
+
+  donorsCollection.onSnapshot((snapshot) => {
+    snapshot.docChanges().forEach((change) => {
+      if (change.type === "added") {
+        const newDonor = change.doc.data();
+        console.log(`New donor added: ${newDonor.name}, Blood Group: ${newDonor.bloodGroup}`);
+
+        // Send notification to subscribers with the same blood group
+        sendPushNotification(
+          "New patient Added",
+          `A new patient with blood group ${newDonor.bloodGroup} was added!`,
+          newDonor.bloodGroup
+        );
+      }
+    });
+  });
+};
+
+// Start listening for new donors
+listenForNewDonors();
 
 // Schedule the notification checker to run daily at 9:00 AM and 4:30 PM
 cron.schedule("0 9 * * *", () => {
@@ -167,12 +191,12 @@ cron.schedule("30 16 * * *", () => {
 
 // API to send custom notifications manually
 app.post("/send-notification", (req, res) => {
-  const { title, message } = req.body;
+  const { title, message, bloodGroup } = req.body;
 
   console.log(`📢 Sending manual notification: ${title} - ${message}`);
   console.log(`Number of subscribers: ${subscribers.length}`);
 
-  sendPushNotification(title, message);
+  sendPushNotification(title, message, bloodGroup || "*"); // Send to all if bloodGroup is not provided
 
   res.status(200).json({ message: "Notification sent successfully!" });
 });
@@ -191,3 +215,12 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
+rl.question("Type 'yes' and press Enter to send a test notification: ", (input) => {
+  if (input.trim().toLowerCase() === "yes") {
+    console.log("📢 Sending test notification...");
+    sendPushNotification("Test Notification", "This is a test notification from the server!", "*"); // Send to all
+  } else {
+    console.log("❌ No notification sent.");
+  }
+  rl.close();
+});
