@@ -271,6 +271,120 @@ app.delete("/bloodbank/donors/:id", async (req, res) => {
   }
 });
 
+// Events Endpoints
+
+// Add a new event
+app.post("/events", async (req, res) => {
+  const { name, imageUrl, description, registerLink, date, time, club, status } = req.body;
+
+  if (!name || !imageUrl || !description || !registerLink || !date || !time || !club) {
+    return res.status(400).json({ message: "All fields are required except status" });
+  }
+
+  try {
+    const eventRef = await db.collection("events").add({
+      name,
+      imageUrl,
+      description,
+      registerLink,
+      date,
+      time,
+      club,
+      status: status || "active", // Default to "active" if not provided
+    });
+    res.status(201).json({ id: eventRef.id, message: "Event added successfully" });
+  } catch (error) {
+    console.error("Error adding event:", error);
+    res.status(500).json({ message: "Failed to add event" });
+  }
+});
+
+// Fetch event by ID
+// Fetch event by name
+app.get("/events/search/:name", async (req, res) => {
+  const { name } = req.params;
+
+  try {
+    const eventsSnapshot = await db.collection("events").where("name", "==", name).get();
+    if (eventsSnapshot.empty) {
+      return res.status(404).json({ message: "Event not found" });
+    }
+
+    const events = [];
+    eventsSnapshot.forEach((doc) => {
+      events.push({ id: doc.id, ...doc.data() });
+    });
+
+    res.status(200).json(events);
+  } catch (error) {
+    console.error("Error fetching event by name:", error);
+    res.status(500).json({ message: "Failed to fetch event" });
+  }
+});
+
+// Update an event by ID
+app.put("/events/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, imageUrl, description, registerLink, date, time, club, status } = req.body;
+
+  if (!name || !imageUrl || !description || !registerLink || !date || !time || !club) {
+    return res.status(400).json({ message: "All fields are required except status" });
+  }
+
+  try {
+    await db.collection("events").doc(id).update({
+      name,
+      imageUrl,
+      description,
+      registerLink,
+      date,
+      time,
+      club,
+      status: status || "active", // Default to "active" if not provided
+    });
+    res.status(200).json({ message: "Event updated successfully" });
+  } catch (error) {
+    console.error("Error updating event:", error);
+    res.status(500).json({ message: "Failed to update event" });
+  }
+});
+
+// Delete an event by ID
+app.delete("/events/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await db.collection("events").doc(id).delete();
+    res.status(200).json({ message: "Event deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    res.status(500).json({ message: "Failed to delete event" });
+  }
+});
+
+// Cron job to delete past events every day at 1 AM
+cron.schedule("0 1 * * *", async () => {
+  console.log("⏰ Running event cleanup at 1 AM");
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  try {
+    const eventsSnapshot = await db.collection("events").get();
+    eventsSnapshot.forEach(async (doc) => {
+      const event = doc.data();
+      const eventDate = new Date(event.date);
+
+      if (eventDate < today) {
+        console.log(`🗑️ Deleting past event: ${event.name} (${event.date})`);
+        await db.collection("events").doc(doc.id).delete();
+      }
+    });
+  } catch (error) {
+    console.error("Error deleting past events:", error);
+  }
+});
+
 // Start the server
 app.listen(process.env.PORT, () =>
   console.log(`🚀 Server running on port ${process.env.PORT}`)
