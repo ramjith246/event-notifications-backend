@@ -5,7 +5,6 @@ const webpush = require("web-push");
 const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const cron = require("node-cron");
-const readline = require("readline");
 
 // Initialize Firebase Admin
 admin.initializeApp({
@@ -13,7 +12,7 @@ admin.initializeApp({
     type: process.env.FIREBASE_TYPE,
     project_id: process.env.FIREBASE_PROJECT_ID,
     private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-    private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"), // Replace escaped newlines
+    private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
     client_email: process.env.FIREBASE_CLIENT_EMAIL,
     client_id: process.env.FIREBASE_CLIENT_ID,
     auth_uri: process.env.FIREBASE_AUTH_URI,
@@ -80,7 +79,7 @@ app.post("/subscribe", (req, res) => {
 
 // Function to send a push notification to all subscribers
 const sendPushNotification = async (title, message, bloodGroup) => {
-  const payload = JSON.stringify({ title, message, bloodGroup }); // Ensure bloodGroup is included
+  const payload = JSON.stringify({ title, message, bloodGroup });
 
   console.log("Sending notification with payload:", payload);
 
@@ -101,7 +100,6 @@ const sendPushNotification = async (title, message, bloodGroup) => {
     }
   });
 };
-
 
 // Function to check and send notifications for upcoming events
 const checkAndSendNotifications = async () => {
@@ -153,7 +151,7 @@ const listenForNewDonors = () => {
       if (change.type === "added") {
         const newDonor = change.doc.data();
         console.log(`New donor added: ${newDonor.name}, Blood Group: ${newDonor.bloodGroup}`);
-  
+
         // Send notification to ALL subscribers with bloodGroup included
         sendPushNotification(
           "New Donor Added",
@@ -163,7 +161,6 @@ const listenForNewDonors = () => {
       }
     });
   });
-  
 };
 
 // Start listening for new donors
@@ -195,17 +192,8 @@ app.post("/send-notification", (req, res) => {
 });
 
 // Blood Bank Endpoints
-app.get("/bloodbank/donors", async (req, res) => {
-  try {
-    const donorsSnapshot = await db.collection("donors").get();
-    const donors = donorsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    res.status(200).json(donors);
-  } catch (error) {
-    console.error("Error fetching donors:", error);
-    res.status(500).json({ message: "Failed to fetch donors" });
-  }
-});
 
+// Add a new donor
 app.post("/bloodbank/donors", async (req, res) => {
   const { name, bloodGroup, contactNumber, contactName, caseType } = req.body;
 
@@ -225,6 +213,61 @@ app.post("/bloodbank/donors", async (req, res) => {
   } catch (error) {
     console.error("Error adding donor:", error);
     res.status(500).json({ message: "Failed to add donor" });
+  }
+});
+
+// Fetch donor by phone number
+app.get("/bloodbank/donors/:contactNumber", async (req, res) => {
+  const { contactNumber } = req.params;
+
+  try {
+    const donorsSnapshot = await db.collection("donors").where("contactNumber", "==", contactNumber).get();
+    if (donorsSnapshot.empty) {
+      return res.status(404).json({ message: "Donor not found" });
+    }
+
+    const donor = donorsSnapshot.docs[0].data();
+    res.status(200).json({ id: donorsSnapshot.docs[0].id, ...donor });
+  } catch (error) {
+    console.error("Error fetching donor:", error);
+    res.status(500).json({ message: "Failed to fetch donor" });
+  }
+});
+
+// Update a donor by ID
+app.put("/bloodbank/donors/:id", async (req, res) => {
+  const { id } = req.params;
+  const { name, bloodGroup, contactNumber, contactName, caseType } = req.body;
+
+  if (!name || !bloodGroup || !contactNumber || !contactName || !caseType) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
+  try {
+    await db.collection("donors").doc(id).update({
+      name,
+      bloodGroup,
+      contactNumber,
+      contactName,
+      case: caseType,
+    });
+    res.status(200).json({ message: "Donor updated successfully" });
+  } catch (error) {
+    console.error("Error updating donor:", error);
+    res.status(500).json({ message: "Failed to update donor" });
+  }
+});
+
+// Delete a donor by ID
+app.delete("/bloodbank/donors/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await db.collection("donors").doc(id).delete();
+    res.status(200).json({ message: "Donor deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting donor:", error);
+    res.status(500).json({ message: "Failed to delete donor" });
   }
 });
 
