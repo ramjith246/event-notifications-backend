@@ -77,6 +77,31 @@ app.post("/subscribe", (req, res) => {
   res.status(201).json({ message: "Subscribed successfully!" });
 });
 
+// Function to send ad notifications
+const sendAdNotification = async (title, body, link) => {
+  const payload = JSON.stringify({ title, body, link, type: "ad" }); // Include a type to differentiate ad notifications
+
+  console.log("Sending ad notification with payload:", payload);
+
+  const sentSubscriptions = new Set();
+
+  subscribers.forEach((subscription) => {
+    if (!sentSubscriptions.has(subscription.endpoint)) {
+      webpush
+        .sendNotification(subscription, payload)
+        .then(() => {
+          console.log("Ad notification sent successfully to:", subscription.endpoint);
+          sentSubscriptions.add(subscription.endpoint);
+        })
+        .catch((error) => {
+          console.error("Error sending ad notification:", error);
+          subscribers = subscribers.filter((sub) => sub.endpoint !== subscription.endpoint);
+        });
+    }
+  });
+};
+
+
 // Function to send a push notification to all subscribers
 const sendPushNotification = async (title, message, bloodGroup) => {
   const payload = JSON.stringify({ title, message, bloodGroup });
@@ -191,7 +216,18 @@ app.post("/send-notification", (req, res) => {
   res.status(200).json({ message: "Notification sent successfully!" });
 });
 
-// Blood Bank Endpoints
+app.post("/send-ad", (req, res) => {
+  const { title, body, link } = req.body;
+
+  if (!title || !body || !link) {
+    return res.status(400).json({ message: "Title, body, and link are required" });
+  }
+
+  console.log(`📢 Sending ad notification: ${title} - ${body} - ${link}`);
+  sendAdNotification(title, body, link); // Use the new function for ad notifications
+
+  res.status(200).json({ message: "Ad notification sent successfully!" });
+});
 
 // Add a new donor
 app.post("/bloodbank/donors", async (req, res) => {
