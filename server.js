@@ -6,28 +6,51 @@ const admin = require("firebase-admin");
 const { getFirestore } = require("firebase-admin/firestore");
 const cron = require("node-cron");
 
-// Initialize Firebase Admin
-admin.initializeApp({
-  credential: admin.credential.cert({
-    type: process.env.FIREBASE_TYPE,
-    project_id: process.env.FIREBASE_PROJECT_ID,
-    private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
-    private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    client_email: process.env.FIREBASE_CLIENT_EMAIL,
-    client_id: process.env.FIREBASE_CLIENT_ID,
-    auth_uri: process.env.FIREBASE_AUTH_URI,
-    token_uri: process.env.FIREBASE_TOKEN_URI,
-    auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
-    client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
-    universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
-  }),
-});
+// Initialize Firebase Admin for both databases
+const app1 = admin.initializeApp(
+  {
+    credential: admin.credential.cert({
+      type: process.env.FIREBASE_TYPE,
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      client_id: process.env.FIREBASE_CLIENT_ID,
+      auth_uri: process.env.FIREBASE_AUTH_URI,
+      token_uri: process.env.FIREBASE_TOKEN_URI,
+      auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL,
+      client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL,
+      universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN,
+    }),
+  },
+  "db1" // Name for the first database
+);
+
+const app2 = admin.initializeApp(
+  {
+    credential: admin.credential.cert({
+      type: process.env.FIREBASE_TYPE_2, // Use separate environment variables for the second database
+      project_id: process.env.FIREBASE_PROJECT_ID_2,
+      private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID_2,
+      private_key: process.env.FIREBASE_PRIVATE_KEY_2.replace(/\\n/g, "\n"),
+      client_email: process.env.FIREBASE_CLIENT_EMAIL_2,
+      client_id: process.env.FIREBASE_CLIENT_ID_2,
+      auth_uri: process.env.FIREBASE_AUTH_URI_2,
+      token_uri: process.env.FIREBASE_TOKEN_URI_2,
+      auth_provider_x509_cert_url: process.env.FIREBASE_AUTH_PROVIDER_X509_CERT_URL_2,
+      client_x509_cert_url: process.env.FIREBASE_CLIENT_X509_CERT_URL_2,
+      universe_domain: process.env.FIREBASE_UNIVERSE_DOMAIN_2,
+    }),
+  },
+  "db2" // Name for the second database
+);
+
+const db1 = getFirestore(app1);
+const db2 = getFirestore(app2);
 
 const app = express();
 app.use(express.json());
 app.use(cors());
-
-const db = getFirestore();
 
 // VAPID Keys
 webpush.setVapidDetails(
@@ -101,7 +124,6 @@ const sendAdNotification = async (title, body, link) => {
   });
 };
 
-
 // Function to send a push notification to all subscribers
 const sendPushNotification = async (title, message, bloodGroup) => {
   const payload = JSON.stringify({ title, message, bloodGroup });
@@ -133,59 +155,74 @@ const checkAndSendNotifications = async () => {
 
   console.log(`📅 Checking events for: ${today.toDateString()}`);
 
-  const eventsSnapshot = await db.collection("events").get();
+  // Check events in both databases
+  const [snapshot1, snapshot2] = await Promise.all([
+    db1.collection("events").get(),
+    db2.collection("events").get(),
+  ]);
 
-  eventsSnapshot.forEach((doc) => {
-    const event = doc.data();
+  const processEvents = (eventsSnapshot) => {
+    eventsSnapshot.forEach((doc) => {
+      const event = doc.data();
 
-    if (!event.time || typeof event.time !== "string") {
-      console.log(`⏩ Skipping event "${event.name}" (time not available or invalid)`);
-      return;
-    }
+      if (!event.time || typeof event.time !== "string") {
+        console.log(`⏩ Skipping event "${event.name}" (time not available or invalid)`);
+        return;
+      }
 
-    const eventDate = new Date(event.date);
-    const [hours, minutes] = event.time.split(":").map(Number);
+      const eventDate = new Date(event.date);
+      const [hours, minutes] = event.time.split(":").map(Number);
 
-    if (isNaN(hours) || isNaN(minutes)) {
-      console.log(`⏩ Skipping event "${event.name}" (invalid time format)`);
-      return;
-    }
+      if (isNaN(hours) || isNaN(minutes)) {
+        console.log(`⏩ Skipping event "${event.name}" (invalid time format)`);
+        return;
+      }
 
-    eventDate.setHours(hours, minutes, 0, 0);
+      eventDate.setHours(hours, minutes, 0, 0);
 
-    if (
-      eventDate.getFullYear() === today.getFullYear() &&
-      eventDate.getMonth() === today.getMonth() &&
-      eventDate.getDate() === today.getDate()
-    ) {
-      console.log(`📢 Sending notification for event: ${event.name}`);
-      sendPushNotification(
-        "Upcoming Event",
-        `Reminder: ${event.name} is today at ${event.time}!`
-      );
-    }
-  });
+      if (
+        eventDate.getFullYear() === today.getFullYear() &&
+        eventDate.getMonth() === today.getMonth() &&
+        eventDate.getDate() === today.getDate()
+      ) {
+        console.log(`📢 Sending notification for event: ${event.name}`);
+        sendPushNotification(
+          "Upcoming Event",
+          `Reminder: ${event.name} is today at ${event.time}!`
+        );
+      }
+    });
+  };
+
+  processEvents(snapshot1);
+  processEvents(snapshot2);
 };
 
 // Listen for new donors and send notifications to all subscribers
 const listenForNewDonors = () => {
-  const donorsCollection = db.collection("donors");
+  const donorsCollection1 = db1.collection("donors");
+  const donorsCollection2 = db2.collection("donors");
 
-  donorsCollection.onSnapshot((snapshot) => {
-    snapshot.docChanges().forEach((change) => {
-      if (change.type === "added") {
-        const newDonor = change.doc.data();
-        console.log(`New donor added: ${newDonor.name}, Blood Group: ${newDonor.bloodGroup}`);
+  const processDonorChanges = (donorsCollection) => {
+    donorsCollection.onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          const newDonor = change.doc.data();
+          console.log(`New donor added: ${newDonor.name}, Blood Group: ${newDonor.bloodGroup}`);
 
-        // Send notification to ALL subscribers with bloodGroup included
-        sendPushNotification(
-          "New Donor Added",
-          `A new donor with blood group ${newDonor.bloodGroup} is available! Contact: ${newDonor.contactName} - ${newDonor.contactNumber}`,
-          newDonor.bloodGroup
-        );
-      }
+          // Send notification to ALL subscribers with bloodGroup included
+          sendPushNotification(
+            "Blood required",
+            `A  donor with blood group ${newDonor.bloodGroup} is required! Contact: ${newDonor.contactName} - ${newDonor.contactNumber} `,
+            newDonor.bloodGroup
+          );
+        }
+      });
     });
-  });
+  };
+
+  processDonorChanges(donorsCollection1);
+  processDonorChanges(donorsCollection2);
 };
 
 // Start listening for new donors
@@ -231,56 +268,67 @@ app.post("/send-ad", (req, res) => {
 
 // Add a new donor
 app.post("/bloodbank/donors", async (req, res) => {
-  const { name, bloodGroup, contactNumber, contactName, caseType } = req.body;
+  const { name, bloodGroup, contactNumber, contactName, caseType, db } = req.body;
 
-  if (!name || !bloodGroup || !contactNumber || !contactName || !caseType) {
+  if (!name || !bloodGroup || !contactNumber || !contactName || !caseType || !db) {
     return res.status(400).json({ message: "All fields are required" });
   }
 
+  const dbRef = db === "db1" ? db1 : db2;
+
   try {
-    const donorRef = await db.collection("donors").add({
+    const donorRef = await dbRef.collection("donors").add({
       name,
       bloodGroup,
       contactNumber,
       contactName,
       case: caseType,
     });
-    res.status(201).json({ id: donorRef.id, message: "Donor added successfully" });
+    res.status(201).json({ id: donorRef.id, message: "patient" });
   } catch (error) {
     console.error("Error adding donor:", error);
     res.status(500).json({ message: "Failed to add donor" });
   }
 });
 
-// Fetch donor by phone number
+// Fetch donor by phone number (search both databases)
 app.get("/bloodbank/donors/:contactNumber", async (req, res) => {
   const { contactNumber } = req.params;
 
   try {
-    const donorsSnapshot = await db.collection("donors").where("contactNumber", "==", contactNumber).get();
-    if (donorsSnapshot.empty) {
+    const [snapshot1, snapshot2] = await Promise.all([
+      db1.collection("donors").where("contactNumber", "==", contactNumber).get(),
+      db2.collection("donors").where("contactNumber", "==", contactNumber).get(),
+    ]);
+
+    const donors = [];
+    snapshot1.forEach((doc) => donors.push({ id: doc.id, ...doc.data(), db: "db1" }));
+    snapshot2.forEach((doc) => donors.push({ id: doc.id, ...doc.data(), db: "db2" }));
+
+    if (donors.length === 0) {
       return res.status(404).json({ message: "Donor not found" });
     }
 
-    const donor = donorsSnapshot.docs[0].data();
-    res.status(200).json({ id: donorsSnapshot.docs[0].id, ...donor });
+    res.status(200).json(donors);
   } catch (error) {
     console.error("Error fetching donor:", error);
     res.status(500).json({ message: "Failed to fetch donor" });
   }
 });
 
-// Update a donor by ID
+// Update a donor by ID (specify database)
 app.put("/bloodbank/donors/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, bloodGroup, contactNumber, contactName, caseType } = req.body;
+  const { name, bloodGroup, contactNumber, contactName, caseType, db } = req.body;
 
-  if (!name || !bloodGroup || !contactNumber || !contactName || !caseType) {
+  if (!name || !bloodGroup || !contactNumber || !contactName || !caseType || !db) {
     return res.status(400).json({ message: "All fields are required" });
   }
 
+  const dbRef = db === "db1" ? db1 : db2;
+
   try {
-    await db.collection("donors").doc(id).update({
+    await dbRef.collection("donors").doc(id).update({
       name,
       bloodGroup,
       contactNumber,
@@ -294,12 +342,19 @@ app.put("/bloodbank/donors/:id", async (req, res) => {
   }
 });
 
-// Delete a donor by ID
+// Delete a donor by ID (specify database)
 app.delete("/bloodbank/donors/:id", async (req, res) => {
   const { id } = req.params;
+  const { db } = req.body;
+
+  if (!db) {
+    return res.status(400).json({ message: "Database identifier is required" });
+  }
+
+  const dbRef = db === "db1" ? db1 : db2;
 
   try {
-    await db.collection("donors").doc(id).delete();
+    await dbRef.collection("donors").doc(id).delete();
     res.status(200).json({ message: "Donor deleted successfully" });
   } catch (error) {
     console.error("Error deleting donor:", error);
@@ -309,16 +364,18 @@ app.delete("/bloodbank/donors/:id", async (req, res) => {
 
 // Events Endpoints
 
-// Add a new event
+// Add a new event (specify database)
 app.post("/events", async (req, res) => {
-  const { name, imageUrl, description, registerLink, date, time, club, status } = req.body;
+  const { name, imageUrl, description, registerLink, date, time, club, status, db } = req.body;
 
-  if (!name || !imageUrl || !description || !registerLink || !date || !time || !club) {
+  if (!name || !imageUrl || !description || !registerLink || !date || !time || !club || !db) {
     return res.status(400).json({ message: "All fields are required except status" });
   }
 
+  const dbRef = db === "db1" ? db1 : db2;
+
   try {
-    const eventRef = await db.collection("events").add({
+    const eventRef = await dbRef.collection("events").add({
       name,
       imageUrl,
       description,
@@ -335,21 +392,23 @@ app.post("/events", async (req, res) => {
   }
 });
 
-// Fetch event by ID
-// Fetch event by name
+// Fetch event by name (search both databases)
 app.get("/events/search/:name", async (req, res) => {
   const { name } = req.params;
 
   try {
-    const eventsSnapshot = await db.collection("events").where("name", "==", name).get();
-    if (eventsSnapshot.empty) {
-      return res.status(404).json({ message: "Event not found" });
-    }
+    const [snapshot1, snapshot2] = await Promise.all([
+      db1.collection("events").where("name", "==", name).get(),
+      db2.collection("events").where("name", "==", name).get(),
+    ]);
 
     const events = [];
-    eventsSnapshot.forEach((doc) => {
-      events.push({ id: doc.id, ...doc.data() });
-    });
+    snapshot1.forEach((doc) => events.push({ id: doc.id, ...doc.data(), db: "db1" }));
+    snapshot2.forEach((doc) => events.push({ id: doc.id, ...doc.data(), db: "db2" }));
+
+    if (events.length === 0) {
+      return res.status(404).json({ message: "Event not found" });
+    }
 
     res.status(200).json(events);
   } catch (error) {
@@ -358,17 +417,19 @@ app.get("/events/search/:name", async (req, res) => {
   }
 });
 
-// Update an event by ID
+// Update an event by ID (specify database)
 app.put("/events/:id", async (req, res) => {
   const { id } = req.params;
-  const { name, imageUrl, description, registerLink, date, time, club, status } = req.body;
+  const { name, imageUrl, description, registerLink, date, time, club, status, db } = req.body;
 
-  if (!name || !imageUrl || !description || !registerLink || !date || !time || !club) {
+  if (!name || !imageUrl || !description || !registerLink || !date || !time || !club || !db) {
     return res.status(400).json({ message: "All fields are required except status" });
   }
 
+  const dbRef = db === "db1" ? db1 : db2;
+
   try {
-    await db.collection("events").doc(id).update({
+    await dbRef.collection("events").doc(id).update({
       name,
       imageUrl,
       description,
@@ -385,12 +446,19 @@ app.put("/events/:id", async (req, res) => {
   }
 });
 
-// Delete an event by ID
+// Delete an event by ID (specify database)
 app.delete("/events/:id", async (req, res) => {
   const { id } = req.params;
+  const { db } = req.body;
+
+  if (!db) {
+    return res.status(400).json({ message: "Database identifier is required" });
+  }
+
+  const dbRef = db === "db1" ? db1 : db2;
 
   try {
-    await db.collection("events").doc(id).delete();
+    await dbRef.collection("events").doc(id).delete();
     res.status(200).json({ message: "Event deleted successfully" });
   } catch (error) {
     console.error("Error deleting event:", error);
@@ -398,27 +466,32 @@ app.delete("/events/:id", async (req, res) => {
   }
 });
 
-// Cron job to delete past events every day at 1 AM
+// Cron job to delete past events every day at 1 AM (both databases)
 cron.schedule("0 1 * * *", async () => {
   console.log("⏰ Running event cleanup at 1 AM");
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  try {
-    const eventsSnapshot = await db.collection("events").get();
-    eventsSnapshot.forEach(async (doc) => {
-      const event = doc.data();
-      const eventDate = new Date(event.date);
+  const deletePastEvents = async (dbRef) => {
+    try {
+      const eventsSnapshot = await dbRef.collection("events").get();
+      eventsSnapshot.forEach(async (doc) => {
+        const event = doc.data();
+        const eventDate = new Date(event.date);
 
-      if (eventDate < today) {
-        console.log(`🗑️ Deleting past event: ${event.name} (${event.date})`);
-        await db.collection("events").doc(doc.id).delete();
-      }
-    });
-  } catch (error) {
-    console.error("Error deleting past events:", error);
-  }
+        if (eventDate < today) {
+          console.log(`🗑️ Deleting past event: ${event.name} (${event.date})`);
+          await dbRef.collection("events").doc(doc.id).delete();
+        }
+      });
+    } catch (error) {
+      console.error("Error deleting past events:", error);
+    }
+  };
+
+  await deletePastEvents(db1);
+  await deletePastEvents(db2);
 });
 
 // Start the server
