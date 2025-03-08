@@ -467,8 +467,9 @@ app.delete("/events/:id", async (req, res) => {
 });
 
 // Cron job to delete past events every day at 1 AM (both databases)
-cron.schedule("0 1 * * *", async () => {
-  console.log("⏰ Running event cleanup at 1 AM");
+cron.schedule("30 19 * * *", async () => {
+  console.log("⏰ Running event cleanup at 7:30 PM");
+  // Your cleanup logic here
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
