@@ -229,13 +229,13 @@ const listenForNewDonors = () => {
 listenForNewDonors();
 
 // Schedule the notification checker to run daily at 9:00 AM and 4:30 PM
-cron.schedule("0 9 * * *", () => {
-  console.log("⏰ Running notification checker at 9:00 AM");
+cron.schedule("30 3 * * *", () => {
+  console.log("⏰ Running notification checker at 3:30 AM");
   checkAndSendNotifications();
 });
 
-cron.schedule("30 16 * * *", () => {
-  console.log("⏰ Running notification checker at 4:30 PM");
+cron.schedule("30 10 * * *", () => {
+  console.log("⏰ Running notification checker at 10:30 AM");
   checkAndSendNotifications();
 });
 
