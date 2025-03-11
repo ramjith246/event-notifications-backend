@@ -207,6 +207,9 @@ const checkAndSendNotifications = async () => {
     db2.collection("events").get(),
   ]);
 
+  // Array to store event names happening today
+  const eventsToday = [];
+
   const processEvents = (eventsSnapshot) => {
     eventsSnapshot.forEach((doc) => {
       const event = doc.data();
@@ -231,17 +234,28 @@ const checkAndSendNotifications = async () => {
         eventDate.getMonth() === today.getMonth() &&
         eventDate.getDate() === today.getDate()
       ) {
-        console.log(`📢 Sending notification for event: ${event.name}`);
-        sendPushNotification(
-          "Upcoming Event",
-          `Reminder: ${event.name} is today at ${event.time}!`
-        );
+        // Add event name to the array
+        eventsToday.push(event.name);
       }
     });
   };
 
   processEvents(snapshot1);
   processEvents(snapshot2);
+
+  // If there are events today, send a single notification
+  if (eventsToday.length > 0) {
+    const eventList = eventsToday.join(", "); // Join event names into a single string
+    const notificationMessage = `You have ${eventsToday.length} event(s) today: ${eventList}`;
+
+    console.log(`📢 Sending notification for events: ${eventList}`);
+    sendPushNotification(
+      "Upcoming Events",
+      notificationMessage
+    );
+  } else {
+    console.log("No events today.");
+  }
 };
 
 // Listen for new donors and send notifications to all subscribers
